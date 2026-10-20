@@ -105,9 +105,19 @@ def estimate(pbp):
     m["p_fg"] = [0.0] + [fg_make_prob(pos + 18, b0, b1) if pos + 18 <= MAX_FG else 0.0
                          for pos in range(1, 100)]          # index = pos; kick distance = pos + 18
 
-    # Punts (distance, return), extra points, drives per game
-    pu = pbp[pbp.play_type == "punt"]
+    # Punts (distance, return), extra points, drives per game.
+    # Punters aim differently by field position (pinning deep near midfield), so a punt from pos is drawn
+    # only from real punts kicked within ±5 yards of pos (window widened until it holds 200 punts).
+    pu = pbp[(pbp.play_type == "punt") & pbp.yardline_100.notna()]
     m["punts"] = list(zip(pu.kick_distance.fillna(0).astype(int), pu.return_yards.fillna(0).astype(int)))
+    yl, kd, ret = pu.yardline_100.to_numpy(int), pu.kick_distance.fillna(0).to_numpy(int), pu.return_yards.fillna(0).to_numpy(int)
+    m["punts_at"] = [None]
+    for pos in range(1, 100):
+        w = 5
+        while np.sum(np.abs(yl - pos) <= w) < 200:
+            w += 1
+        near = np.abs(yl - pos) <= w
+        m["punts_at"].append(list(zip(kd[near], ret[near])))
     m["p_xp"] = (pbp[pbp.play_type == "extra_point"].extra_point_result == "good").mean()
     drives = pbp.dropna(subset=["posteam", "fixed_drive"]).groupby(["game_id", "posteam"]).fixed_drive.nunique()
     m["drives_mean"], m["drives"] = drives.mean(), int(round(drives.mean()))
@@ -142,8 +152,9 @@ def estimate(pbp):
 # ---------------------------------------------------------------- 3. Simulator
 
 def punt(m, pos, rng):
-    """Opponent's starting pos after our punt from pos (touchback -> 80)."""
-    kd, ret = m["punts"][int(rng.random() * len(m["punts"]))]
+    """Opponent's starting pos after our punt from pos (touchback -> 80), drawn from real punts near pos."""
+    punts = m["punts_at"][pos]
+    kd, ret = punts[int(rng.random() * len(punts))]
     land = pos - kd
     return 80 if land <= 0 else min(99, max(1, 100 - land + ret))
 
@@ -258,7 +269,7 @@ def fixed_rate(q, fg_range):
 def short_yardage(X):     return lambda togo, pos, diff, left: togo <= X                # rule 5
 def past_midfield():      return lambda togo, pos, diff, left: pos < 50                 # rule 6
 def short_and_close(X, Y): return lambda togo, pos, diff, left: togo <= X and pos <= Y  # rule 7
-def no_mans_land(A, B):   return lambda togo, pos, diff, left: A <= pos <= B            # rule 8
+def no_mans_land(A, B, T=99): return lambda togo, pos, diff, left: A <= pos <= B and togo <= T  # rule 8
 def goal_line():          return lambda togo, pos, diff, left: pos <= 5                 # rule 9
 def trailing_late(N):     return lambda togo, pos, diff, left: diff < 0 and left <= N   # rule 10
 
@@ -268,10 +279,19 @@ def fg_changes_scores(diff):
     return 6 <= diff <= 8 or -11 <= diff <= -9
 
 
-def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick"):
+def protecting_lead(N, diff, left):
+    """Rule 12: leading by 9 or more (two scores) with N or fewer drives left."""
+    return N is not None and diff >= 9 and left <= N
+
+
+def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None):
     """Go if ANY go rule says so. fg11 = rule 11 (score-aware field goal, late only).
+    protect = N: rule 12, when leading by 9+ with <= N drives left always kick (FG if in range, else punt),
+    overriding every go rule, so we never hand the opponent a short field.
     fallback when no rule says go: 'kick' (FG if in range, else punt) or 'coach' (decide like a real coach)."""
     def policy(m, togo, pos, diff, left, rng):
+        if protecting_lead(protect, diff, left):
+            return kick(pos, fg_range)
         if any(rule(togo, pos, diff, left) for rule in go_rules):
             return "go"
         if fg11 and pos <= fg_range and left <= LATE:
@@ -282,7 +302,7 @@ def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick"):
 
 # A candidate combination is a dict:
 #   yt = None / ["5", X] / ["7", [X, Y]]   (yards-to-go rule),   r6, r9, r11 = True/False,
-#   r8 = None / [A, B],   r10 = None / N,   fallback = "kick" / "coach"
+#   r8 = None / [A, B, T],   r10 = None / N,   r12 = None / N,   fallback = "kick" / "coach"
 
 def build(c, fg_range):
     """Turn a candidate dict into a policy."""
@@ -293,7 +313,7 @@ def build(c, fg_range):
     if c["r8"]: rules.append(no_mans_land(*c["r8"]))
     if c["r9"]: rules.append(goal_line())
     if c["r10"]: rules.append(trailing_late(c["r10"]))
-    return strategy(rules, fg_range, fg11=c["r11"], fallback=c["fallback"])
+    return strategy(rules, fg_range, fg11=c["r11"], fallback=c["fallback"], protect=c.get("r12"))
 
 
 def label(c):
@@ -302,24 +322,26 @@ def label(c):
     if c["yt"]:
         p.append(f"≤{c['yt'][1]} yd" if c["yt"][0] == "5" else f"≤{c['yt'][1][0]} yd & pos ≤{c['yt'][1][1]}")
     if c["r6"]: p.append("past midfield")
-    if c["r8"]: p.append(f"no man's land {c['r8'][0]}–{c['r8'][1]}")
+    if c["r8"]: p.append(f"no man's land {c['r8'][0]}–{c['r8'][1]} (≤{c['r8'][2]} yd)")
     if c["r9"]: p.append("goal line")
     if c["r10"]: p.append(f"trailing (≤{c['r10']} drives)")
     if c["r11"]: p.append("score-aware FG")
+    if c.get("r12"): p.append(f"protect lead (≤{c['r12']} drives)")
     return (" + ".join(p) or "no rules") + f" | else {c['fallback']}"
 
 
-def candidates(top_xy, top_nml):
+def candidates(top_xy, top_nml, nml_togo=(6, 10)):
     """All combinations searched in step 2."""
     yt = [None] + [["5", X] for X in [3, 4, 5, 6, 8]] + [["7", list(xy)] for xy in top_xy]
-    return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, fallback=g)
-            for a, b, c, d, e, f, g in product(yt, [False, True], [None] + [list(r) for r in top_nml],
-                                               [False, True], [None, 2, 3, 6], [False, True], ["kick", "coach"])]
+    r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
+    return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
+            for a, b, c, d, e, f, h, g in product(yt, [False, True], r8, [False, True], [None, 2, 3, 6],
+                                                  [False, True], [None, 3], ["kick", "coach"])]
 
 
 def size(c):
     """Number of rules in a candidate."""
-    return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"]
+    return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"] + bool(c.get("r12"))
 
 
 def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
@@ -347,7 +369,8 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
 
 
 RULE_NAMES = {"5": "5. Short yardage", "7": "7. Short and close", "6": "6. Past midfield",
-              "8": "8. No man's land", "9": "9. Goal line", "10": "10. Trailing late", "11": "11. Score-aware FG (late)"}
+              "8": "8. No man's land", "9": "9. Goal line", "10": "10. Trailing late", "11": "11. Score-aware FG (late)",
+              "12": "12. Protect a lead (late)"}
 
 
 def rule_effects(cands, scores):
@@ -359,13 +382,14 @@ def rule_effects(cands, scores):
         c = [cands[i] for i in ids]
         X = np.array([[1,
                        bool(k["yt"]) and k["yt"][0] == "5", bool(k["yt"]) and k["yt"][0] == "7",
-                       k["r6"], bool(k["r8"]), k["r9"], bool(k["r10"]), k["r11"]] for k in c], dtype=float)
+                       k["r6"], bool(k["r8"]), k["r9"], bool(k["r10"]), k["r11"], bool(k.get("r12"))]
+                      for k in c], dtype=float)
         y = np.array([scores[i] for i in ids])
         beta, *_ = np.linalg.lstsq(X, y, rcond=None)
         res = y - X @ beta
         se = np.sqrt(np.diag(res @ res / (len(y) - X.shape[1]) * np.linalg.inv(X.T @ X)))
         r2[fb] = 1 - res @ res / np.sum((y - y.mean()) ** 2)
-        for k, key in enumerate(["5", "7", "6", "8", "9", "10", "11"]):
+        for k, key in enumerate(["5", "7", "6", "8", "9", "10", "11", "12"]):
             rows.append({"rule": RULE_NAMES[key], "fallback": fb, "β": beta[k + 1], "se": se[k + 1]})
     return pd.DataFrame(rows), r2
 
