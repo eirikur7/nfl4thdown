@@ -20,20 +20,14 @@ BLUE, ORANGE, GRAY, DARK, LIGHT = "#2a78d6", "#eb6834", "#8a8984", "#13202e", "#
 def yards_per_play(m):
     ys = np.array(m["yards"]["equal"][(1, 10)][0])
     vals, cnt = np.unique(np.clip(ys, -10, 40), return_counts=True)
-    fig, axs = plt.subplots(1, 2, figsize=(13, 4))
-    axs[0].bar(vals, cnt / cnt.sum(), width=0.9, color=BLUE, label="Data")
+    plt.bar(vals, cnt / cnt.sum(), width=0.9, color=BLUE, label="Data")
     x = np.linspace(-10, 40, 300)
-    axs[0].plot(x, norm.pdf(x, ys.mean(), ys.std()), color=ORANGE, lw=2, label="Normal, same mean and SD")
-    axs[0].axvline(ys.mean(), color="black", ls="--", lw=1)
-    axs[0].set(xlabel="Yards gained on 1st & 10 (40 = 40+)", ylabel="Probability",
-               title=f"Yards per play: mean {ys.mean():.1f}, median {np.median(ys):.0f}")
-    axs[0].legend()
-    for key, lab, col in [((3, 1), "3rd/4th & 1", BLUE), ((3, 10), "3rd/4th & 10", ORANGE)]:
-        s = np.sort(m["yards"]["equal"][key][0])
-        axs[1].step(s, np.arange(1, len(s) + 1) / len(s), where="post", color=col, label=lab)
-    axs[1].set(xlim=(-10, 30), xlabel="y", ylabel="P(Y ≤ y)", title="Empirical CDF by situation")
-    axs[1].legend()
-    plt.tight_layout()
+    plt.plot(x, norm.pdf(x, ys.mean(), ys.std()), color=ORANGE, lw=2, label="Normal, same mean and SD")
+    plt.axvline(ys.mean(), color="black", ls="--", lw=1)
+    plt.xlabel("Yards gained on 1st & 10 (40 = 40+)")
+    plt.ylabel("Probability")
+    plt.title(f"Yards per play: mean {ys.mean():.1f}, median {np.median(ys):.0f}")
+    plt.legend()
     plt.show()
 
 
@@ -43,8 +37,7 @@ def field_goals(m):
     b0, b1 = m["fg_logit"]
     plt.scatter(fg.index, fg.made / fg.n, s=np.sqrt(fg.n) * 2, color=ORANGE, alpha=0.6,
                 label="Each distance (size = number of kicks)")
-    plt.plot(d, [M.fg_make_prob(x, fg, b0, b1) for x in d], color=BLUE, lw=2.5, label="Used in the simulator")
-    plt.plot(d, 1 / (1 + np.exp(-(b0 + b1 * d))), color=GRAY, ls="--", lw=1,
+    plt.plot(d, [M.fg_make_prob(x, b0, b1) for x in d], color=BLUE, lw=2.5,
              label=f"Logistic fit (β₀ = {b0:.2f}, β₁ = {b1:.3f})")
     plt.xlim(17, 70)
     plt.ylim(0, 1.02)

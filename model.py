@@ -73,14 +73,9 @@ def play_model(plays):
             for (d, t), g in plays.groupby(["d", "t"])}
 
 
-def fg_make_prob(x, fg_by_dist, b0, b1):
-    """P(field goal made) from distance x: make rate of kicks within ±2 yards, blended with the
-    logistic fit when there are few kicks (weight min(1, n/300) on the data)."""
-    win = fg_by_dist.loc[x - 2:x + 2]
-    n = win.n.sum()
-    w = min(1.0, n / 300)
-    data_rate = win.made.sum() / n if n else 0.0
-    return w * data_rate + (1 - w) / (1 + math.exp(-(b0 + b1 * x)))
+def fg_make_prob(x, b0, b1):
+    """P(field goal made) from distance x: logistic fit p(x) = 1 / (1 + exp(-(b0 + b1 x)))."""
+    return 1 / (1 + math.exp(-(b0 + b1 * x)))
 
 
 def estimate(pbp):
@@ -100,14 +95,14 @@ def estimate(pbp):
     conv["success"] = (conv.first_down == 1) | (conv.touchdown == 1)
     m["p_d"] = conv.groupby("ydstogo").success.agg(["mean", "count"])
 
-    # Field goals: logistic regression by maximum likelihood + make rate per distance
+    # Field goals: logistic regression by maximum likelihood (make rate per distance kept for the plot)
     fg = pbp[(pbp.play_type == "field_goal") & pbp.kick_distance.notna()]
     x, y = fg.kick_distance.to_numpy(float), (fg.field_goal_result == "made").to_numpy(float)
     b0, b1 = minimize(lambda b: np.sum(np.logaddexp(0, b[0] + b[1] * x) - y * (b[0] + b[1] * x)), [0, 0]).x
     fg_by_dist = fg.groupby(fg.kick_distance.astype(int)).field_goal_result.agg(
         made=lambda r: (r == "made").sum(), n="size")
     m["fg_logit"], m["fg_by_dist"], m["n_fg"] = (b0, b1), fg_by_dist, len(fg)
-    m["p_fg"] = [0.0] + [fg_make_prob(pos + 18, fg_by_dist, b0, b1) if pos + 18 <= MAX_FG else 0.0
+    m["p_fg"] = [0.0] + [fg_make_prob(pos + 18, b0, b1) if pos + 18 <= MAX_FG else 0.0
                          for pos in range(1, 100)]          # index = pos; kick distance = pos + 18
 
     # Punts (distance, return), extra points, drives per game
