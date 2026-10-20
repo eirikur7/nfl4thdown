@@ -331,11 +331,12 @@ def label(c):
 
 
 def candidates(top_xy, top_nml, nml_togo=(6, 10)):
-    """All combinations searched in step 2."""
+    """All combinations searched in step 2. Rule 6 (past midfield) is left out: it always lowered the win
+    probability (about -3 pp per candidate in the regression), and dropping it halves the search."""
     yt = [None] + [["5", X] for X in [3, 4, 5, 6, 8]] + [["7", list(xy)] for xy in top_xy]
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
     return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
-            for a, b, c, d, e, f, h, g in product(yt, [False, True], r8, [False, True], [None, 2, 3, 6],
+            for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
                                                   [False, True], [None, 3], ["kick", "coach"])]
 
 
@@ -385,12 +386,15 @@ def rule_effects(cands, scores):
                        k["r6"], bool(k["r8"]), k["r9"], bool(k["r10"]), k["r11"], bool(k.get("r12"))]
                       for k in c], dtype=float)
         y = np.array([scores[i] for i in ids])
+        keys = np.array(["", "5", "7", "6", "8", "9", "10", "11", "12"])
+        used = [0] + [j for j in range(1, X.shape[1]) if X[:, j].min() != X[:, j].max()]   # drop rules never varied
+        X, keys = X[:, used], keys[used]
         beta, *_ = np.linalg.lstsq(X, y, rcond=None)
         res = y - X @ beta
         se = np.sqrt(np.diag(res @ res / (len(y) - X.shape[1]) * np.linalg.inv(X.T @ X)))
         r2[fb] = 1 - res @ res / np.sum((y - y.mean()) ** 2)
-        for k, key in enumerate(["5", "7", "6", "8", "9", "10", "11", "12"]):
-            rows.append({"rule": RULE_NAMES[key], "fallback": fb, "β": beta[k + 1], "se": se[k + 1]})
+        for k, key in enumerate(keys[1:], start=1):
+            rows.append({"rule": RULE_NAMES[key], "fallback": fb, "β": beta[k], "se": se[k]})
     return pd.DataFrame(rows), r2
 
 
