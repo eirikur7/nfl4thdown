@@ -250,10 +250,11 @@ def handbook_map(hb, max_togo=10):
         grid = hb.pivot(index="togo", columns="pos", values=col).reindex(columns=range(1, 100))
         codes = grid.apply(lambda s: s.map({c: i for i, c in enumerate(CALLS)})).values.astype(float)
         ax.imshow(codes, cmap=cmap, vmin=-0.5, vmax=2.5, aspect="auto", origin="lower",
-                  extent=(0.5, 99.5, 0.5, max_togo + 0.5))
+                  extent=(0, 99, 0, max_togo))      # cell k spans (k-1, k]: "≤ 4" ends exactly at tick 4
         ax.invert_xaxis()
         ax.set(xlabel="pos (yards to opponent's end zone)", title=title)
         ax.set_yticks(range(1, max_togo + 1))
+        ax.set_xticks(range(0, 100, 10))
         ax.grid(False)
     axs[0].set_ylabel("Yards to go")
     fig.legend(handles=[Patch(color=c, label=l) for c, l in zip(CALL_COLORS, ["Go for it", "Field goal", "Punt"])],
