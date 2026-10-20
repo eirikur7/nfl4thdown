@@ -165,7 +165,7 @@ def no_mans_land(m, res):
     axs[0].set_title("Field goals get unlikely, punts gain little")
     im = heatmap(axs[1], 100 * (res["nml"] - res["nml_base"]), lambda v: f"{v:+.1f}", -2, 2, res["top_nml"])
     axs[1].set(xlabel="B (upper end of pos range)", ylabel="A (lower end)",
-               title=f"Adding 'go if A ≤ pos ≤ B' to 'go if ≤ {res['best_x']} yards'")
+               title=f"Adding 'go if A ≤ pos ≤ B and ≤ 10 yards' to 'go if ≤ {res['best_x']} yards'")
     fig.colorbar(im, ax=axs[1], label="pp vs short yardage alone")
     plt.tight_layout()
     plt.show()

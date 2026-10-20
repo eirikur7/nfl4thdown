@@ -31,7 +31,7 @@ Open `results.ipynb` and run all. To redo the simulations, run `compute.ipynb` f
 ## Method in short
 
 1. **Probabilities from data:** yards gained per play (sampled from real plays), P(1st down | yards to go),
-   P(field goal good | distance) (logistic regression), punts, and what coaches do on 4th down.
+   P(field goal good | distance) (logistic regression), punts (drawn from punts kicked from a similar spot), and what coaches do on 4th down.
 2. **Simulator:** a drive is a Markov chain on (down, yards to go, field position); a game is 11 drives per team.
    The opponent always plays like real coaches.
 3. **Strategies:** each game is a Bernoulli trial (win / loss). Strategies play the same games with the same random
@@ -42,5 +42,6 @@ Open `results.ipynb` and run all. To redo the simulations, run `compute.ipynb` f
 ## Assumptions
 
 - No clock or penalties; drives left stand in for the clock.
+- The combination search leaves out rule 6 (past midfield), which always lowered the win probability.
 - 3rd and 4th down share one play distribution (4th-down attempts are rare).
 - The opponent does not adapt; opponent strength only changes its offense.
