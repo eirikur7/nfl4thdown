@@ -111,13 +111,17 @@ def estimate(pbp):
     pu = pbp[(pbp.play_type == "punt") & pbp.yardline_100.notna()]
     m["punts"] = list(zip(pu.kick_distance.fillna(0).astype(int), pu.return_yards.fillna(0).astype(int)))
     yl, kd, ret = pu.yardline_100.to_numpy(int), pu.kick_distance.fillna(0).to_numpy(int), pu.return_yards.fillna(0).to_numpy(int)
+    # kind: 0 normal, 1 punt-return touchdown, 2 muffed / fumbled return recovered by the kicking team,
+    #       3 kicking team recovers the muff in the end zone (touchdown for the kicking team)
+    muff, td = (pu.fumble_lost == 1).to_numpy(), (pu.touchdown == 1).to_numpy()
+    kind = np.where(muff, np.where(td, 3, 2), np.where(td, 1, 0))
     m["punts_at"] = [None]
     for pos in range(1, 100):
         w = 5
         while np.sum(np.abs(yl - pos) <= w) < 200:
             w += 1
         near = np.abs(yl - pos) <= w
-        m["punts_at"].append(list(zip(kd[near], ret[near])))
+        m["punts_at"].append(list(zip(kd[near], ret[near], kind[near])))
     m["p_xp"] = (pbp[pbp.play_type == "extra_point"].extra_point_result == "good").mean()
     drives = pbp.dropna(subset=["posteam", "fixed_drive"]).groupby(["game_id", "posteam"]).fixed_drive.nunique()
     m["drives_mean"], m["drives"] = drives.mean(), int(round(drives.mean()))
@@ -151,17 +155,36 @@ def estimate(pbp):
 
 # ---------------------------------------------------------------- 3. Simulator
 
+PUNT_RETURN_TD = 0       # opponent's "start pos" codes after a punt, handled at the start of drive()
+MUFF = 100               # MUFF + k: the receiver lost the ball, the kicking team starts again at pos k
+MUFF_TD = -1             # the kicking team recovered the muff in the end zone
+
+
 def punt(m, pos, rng):
-    """Opponent's starting pos after our punt from pos (touchback -> 80), drawn from real punts near pos."""
+    """Opponent's starting pos after our punt from pos (touchback -> 80), drawn from real punts near pos.
+    Also returns the special codes above for punt-return touchdowns and muffed punts (about 0.5% and 1%)."""
     punts = m["punts_at"][pos]
-    kd, ret = punts[int(rng.random() * len(punts))]
+    kd, ret, kind = punts[int(rng.random() * len(punts))]
     land = pos - kd
+    if kind == 1:
+        return PUNT_RETURN_TD
+    if kind == 3:
+        return MUFF_TD
+    if kind == 2:
+        return MUFF + min(99, max(1, land + ret))
     return 80 if land <= 0 else min(99, max(1, 100 - land - ret))   # a return moves the receiver forward
 
 
 def drive(m, pos, policy, yards, diff, left, rng, log=None):
     """One drive from 1st & 10 at pos (a Markov chain on (down, togo, pos)).
-    Returns (our points, their points, opponent's start pos, how the drive ended)."""
+    Returns (our points, their points, opponent's start pos, how the drive ended).
+    pos can be a punt code (see punt()): a return touchdown, or a muff that gives the ball straight back."""
+    if pos == PUNT_RETURN_TD:
+        return 6 + (rng.random() < m["p_xp"]), 0, KICKOFF, "Punt return TD"
+    if pos == MUFF_TD:
+        return 0, 6 + (rng.random() < m["p_xp"]), KICKOFF, "Muffed punt"
+    if pos > MUFF:
+        return 0, 0, pos - MUFF, "Muffed punt"
     down, togo = 1, min(10, pos)
     while True:
         if down == 4:
@@ -285,12 +308,19 @@ def score_changing_fg(N, pos, fg_range, diff, left):
     return N is not None and left <= N and pos <= fg_range and fg_changes_scores(diff)
 
 
-def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None):
+def leading_late(lead, pos, diff, left):
+    """Rule 13: leading with N or fewer drives left and on our own side of the field (pos >= Z), lead = (N, Z)."""
+    return lead is not None and diff > 0 and left <= lead[0] and pos >= lead[1]
+
+
+def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None, lead=None):
     """Go if ANY go rule says so. fg11 = rule 11 (score-aware field goal, late only).
     protect = N: rule 12, with <= N drives left always kick the field goal when it changes the number of scores
     between the teams (lead 6-8 -> 9+, or trail 9-11 -> within 8), overriding every go rule.
+    lead = (N, Z): rule 13, when leading with <= N drives left at pos >= Z never go for it (kick instead),
+    overriding every go rule and the coach fallback: a failed attempt there hands the opponent a short field.
     fallback when no rule says go: 'kick' (FG if in range, else punt) or 'coach' (decide like a real coach)."""
-    def policy(m, togo, pos, diff, left, rng):
+    def decide(m, togo, pos, diff, left, rng):
         if score_changing_fg(protect, pos, fg_range, diff, left):
             return "fg"
         if any(rule(togo, pos, diff, left) for rule in go_rules):
@@ -298,7 +328,34 @@ def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None
         if fg11 and pos <= fg_range and left <= LATE:
             return "fg" if fg_changes_scores(diff) else "go"
         return coach(m, togo, pos, diff, left, rng) if fallback == "coach" else kick(pos, fg_range)
+
+    def policy(m, togo, pos, diff, left, rng):
+        a = decide(m, togo, pos, diff, left, rng)
+        return kick(pos, fg_range) if a == "go" and leading_late(lead, pos, diff, left) else a
     return policy
+
+
+_GRID = {}
+
+
+def _grid_run(c):
+    return run(_GRID["m"], strategy([short_and_close(*c)], _GRID["fg"]), n=_GRID["n"], seed=_GRID["seed"])[0].astype(np.float32)
+
+
+def strategy7_grid(m, fg_range, X_VALS, Y_VALS, n=100_000, seed=12, workers=None):
+    """Strategy 7 (go if <= X yards and pos <= Y) on every (X, Y), all on the same n paired games, in parallel.
+    Returns (heat: win probability per cell, tied: cells not significantly worse than the best cell)."""
+    import multiprocessing as mp
+    cells = [(X, Y) for X in X_VALS for Y in Y_VALS]
+    _GRID.update(m=m, fg=fg_range, n=n, seed=seed)
+    with mp.get_context("fork").Pool(workers or mp.cpu_count()) as pool:
+        outs = dict(zip(cells, pool.map(_grid_run, cells)))
+    heat = pd.DataFrame(index=X_VALS, columns=Y_VALS, dtype=float)
+    for (X, Y), o in outs.items():
+        heat.loc[X, Y] = o.mean()
+    best = max(outs, key=lambda c: outs[c].mean())
+    tied = [[int(X), int(Y)] for (X, Y), o in outs.items() if ci(100 * (o.astype(float) - outs[best]))[2] >= 0]
+    return heat, tied
 
 
 # A candidate combination is a dict:
