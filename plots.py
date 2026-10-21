@@ -229,7 +229,7 @@ def short_label(name):
         return "Best single rule: go if ≤ " + name.split("X = ")[1].rstrip(")") + " yd"
     for a, b in [(" | else kick", ""), (" | else coach", ", else coach"), (" yd inside own 30)", " inside own 30)"),
                  ("(not inside own 30)", "(never inside own 30)"), ("no man's land ", ""), (" (≤6 yd)", " ≤6 yd"),
-                 (" (≤10 yd)", " ≤10 yd"), ("trailing (≤", "trailing late ("), ("protect lead (≤3 drives)", "protect lead"),
+                 (" (≤10 yd)", " ≤10 yd"), ("trailing (≤", "trailing late ("), ("score-changing FG (≤3 drives)", "score-changing FG"),
                  (" drives)", ")"), (" + ", " · ")]:
         name = name.replace(a, b)
     return name

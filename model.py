@@ -279,19 +279,20 @@ def fg_changes_scores(diff):
     return 6 <= diff <= 8 or -11 <= diff <= -9
 
 
-def protecting_lead(N, diff, left):
-    """Rule 12: leading by 9 or more (two scores) with N or fewer drives left."""
-    return N is not None and diff >= 9 and left <= N
+def score_changing_fg(N, pos, fg_range, diff, left):
+    """Rule 12: with N or fewer drives left, in field-goal range, a field goal changes how many scores separate
+    the teams (leading by 6-8 -> 9+, two scores; trailing by 9-11 -> within 8, one score)."""
+    return N is not None and left <= N and pos <= fg_range and fg_changes_scores(diff)
 
 
 def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None):
     """Go if ANY go rule says so. fg11 = rule 11 (score-aware field goal, late only).
-    protect = N: rule 12, when leading by 9+ with <= N drives left always kick (FG if in range, else punt),
-    overriding every go rule, so we never hand the opponent a short field.
+    protect = N: rule 12, with <= N drives left always kick the field goal when it changes the number of scores
+    between the teams (lead 6-8 -> 9+, or trail 9-11 -> within 8), overriding every go rule.
     fallback when no rule says go: 'kick' (FG if in range, else punt) or 'coach' (decide like a real coach)."""
     def policy(m, togo, pos, diff, left, rng):
-        if protecting_lead(protect, diff, left):
-            return kick(pos, fg_range)
+        if score_changing_fg(protect, pos, fg_range, diff, left):
+            return "fg"
         if any(rule(togo, pos, diff, left) for rule in go_rules):
             return "go"
         if fg11 and pos <= fg_range and left <= LATE:
@@ -329,7 +330,7 @@ def label(c):
     if c["r9"]: p.append("goal line")
     if c["r10"]: p.append(f"trailing (≤{c['r10']} drives)")
     if c["r11"]: p.append("score-aware FG")
-    if c.get("r12"): p.append(f"protect lead (≤{c['r12']} drives)")
+    if c.get("r12"): p.append(f"score-changing FG (≤{c['r12']} drives)")
     return (" + ".join(p) or "no rules") + f" | else {c['fallback']}"
 
 
@@ -386,6 +387,11 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equ
         alive = sorted(scores, key=scores.get, reverse=True)[:max(5, len(scores) // 4)]
         n *= 4
     return history, games
+
+
+RULE_NAMES = {"5": "5. Short yardage", "7": "7. Short and close", "6": "6. Past midfield",
+              "8": "8. No man's land", "9": "9. Goal line", "10": "10. Trailing late", "11": "11. Score-aware FG (late)",
+              "12": "12. Score-changing FG (late)"}
 
 
 def rule_effects(cands, scores):
