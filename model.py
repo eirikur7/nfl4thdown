@@ -111,13 +111,17 @@ def estimate(pbp):
     pu = pbp[(pbp.play_type == "punt") & pbp.yardline_100.notna()]
     m["punts"] = list(zip(pu.kick_distance.fillna(0).astype(int), pu.return_yards.fillna(0).astype(int)))
     yl, kd, ret = pu.yardline_100.to_numpy(int), pu.kick_distance.fillna(0).to_numpy(int), pu.return_yards.fillna(0).to_numpy(int)
+    # kind: 0 normal, 1 punt-return touchdown, 2 muffed / fumbled return recovered by the kicking team,
+    #       3 kicking team recovers the muff in the end zone (touchdown for the kicking team)
+    muff, td = (pu.fumble_lost == 1).to_numpy(), (pu.touchdown == 1).to_numpy()
+    kind = np.where(muff, np.where(td, 3, 2), np.where(td, 1, 0))
     m["punts_at"] = [None]
     for pos in range(1, 100):
         w = 5
         while np.sum(np.abs(yl - pos) <= w) < 200:
             w += 1
         near = np.abs(yl - pos) <= w
-        m["punts_at"].append(list(zip(kd[near], ret[near])))
+        m["punts_at"].append(list(zip(kd[near], ret[near], kind[near])))
     m["p_xp"] = (pbp[pbp.play_type == "extra_point"].extra_point_result == "good").mean()
     drives = pbp.dropna(subset=["posteam", "fixed_drive"]).groupby(["game_id", "posteam"]).fixed_drive.nunique()
     m["drives_mean"], m["drives"] = drives.mean(), int(round(drives.mean()))
@@ -151,17 +155,36 @@ def estimate(pbp):
 
 # ---------------------------------------------------------------- 3. Simulator
 
+PUNT_RETURN_TD = 0       # opponent's "start pos" codes after a punt, handled at the start of drive()
+MUFF = 100               # MUFF + k: the receiver lost the ball, the kicking team starts again at pos k
+MUFF_TD = -1             # the kicking team recovered the muff in the end zone
+
+
 def punt(m, pos, rng):
-    """Opponent's starting pos after our punt from pos (touchback -> 80), drawn from real punts near pos."""
+    """Opponent's starting pos after our punt from pos (touchback -> 80), drawn from real punts near pos.
+    Also returns the special codes above for punt-return touchdowns and muffed punts (about 0.5% and 1%)."""
     punts = m["punts_at"][pos]
-    kd, ret = punts[int(rng.random() * len(punts))]
+    kd, ret, kind = punts[int(rng.random() * len(punts))]
     land = pos - kd
+    if kind == 1:
+        return PUNT_RETURN_TD
+    if kind == 3:
+        return MUFF_TD
+    if kind == 2:
+        return MUFF + min(99, max(1, land + ret))
     return 80 if land <= 0 else min(99, max(1, 100 - land - ret))   # a return moves the receiver forward
 
 
 def drive(m, pos, policy, yards, diff, left, rng, log=None):
     """One drive from 1st & 10 at pos (a Markov chain on (down, togo, pos)).
-    Returns (our points, their points, opponent's start pos, how the drive ended)."""
+    Returns (our points, their points, opponent's start pos, how the drive ended).
+    pos can be a punt code (see punt()): a return touchdown, or a muff that gives the ball straight back."""
+    if pos == PUNT_RETURN_TD:
+        return 6 + (rng.random() < m["p_xp"]), 0, KICKOFF, "Punt return TD"
+    if pos == MUFF_TD:
+        return 0, 6 + (rng.random() < m["p_xp"]), KICKOFF, "Muffed punt"
+    if pos > MUFF:
+        return 0, 0, pos - MUFF, "Muffed punt"
     down, togo = 1, min(10, pos)
     while True:
         if down == 4:

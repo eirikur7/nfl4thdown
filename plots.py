@@ -146,7 +146,10 @@ def no_mans_land(m, res):
     fg_range, (a, b) = res["fg_range"], res["top_nml"][0]
     rng = random.Random(3)
     pos = np.arange(20, 71)
-    net_punt = [np.mean([p - (100 - M.punt(m, p, rng)) for _ in range(4000)]) for p in pos]
+    def opp_start(p):                       # opponent's start after a punt, as a field position
+        s = M.punt(m, p, rng)
+        return 100 - (s - M.MUFF) if s > M.MUFF else max(s, 0)
+    net_punt = [np.mean([p - (100 - opp_start(p)) for _ in range(4000)]) for p in pos]
     fig, axs = plt.subplots(1, 2, figsize=(13, 4.3))
     axs[0].plot(pos, [m["p_fg"][p] if p <= M.MAX_FG - 18 else np.nan for p in pos], color=BLUE, lw=2,
                 label="P(field goal made)")
