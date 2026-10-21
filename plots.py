@@ -225,11 +225,13 @@ def opponents(res):
     a = res["aggr"]
     x = range(len(a))
     for o, col, mk in zip(["weak", "equal", "strong"], [LIGHT, BLUE, DARK], "oDs"):
+        if "aggr_lo" in res:                                # 95% CI bands
+            plt.fill_between(x, res["aggr_lo"][o], res["aggr_hi"][o], color=col, alpha=0.18, lw=0)
         plt.plot(x, a[o], marker=mk, color=col, label=f"Opponent: {o}")
     plt.xticks(x, ["never"] + [f"≤{v}" for v in a.index[1:-1]] + ["always"])
     plt.axhline(0, color="black", lw=0.8)
     plt.xlabel("Go for it if yards to go ≤ X   (more aggressive →)")
-    plt.ylabel("Win prob. vs coaches (pp)")
+    plt.ylabel("Win prob. vs coaches (pp, 95% CI)")
     plt.title("More aggression pays more against stronger opponents")
     plt.legend()
     plt.show()
