@@ -35,7 +35,7 @@ def singles(m, res, fg, best_x):
         "9. Goal line": M.strategy([M.goal_line()], fg),
         f"10. Trailing late (N = {res['best_n']})": M.strategy([M.trailing_late(res["best_n"])], fg),
         "11. Score-aware FG, last 3 drives": M.strategy([], fg, fg11=True),
-        "12. Protect a lead on top of coaches": M.strategy([], fg, fallback="coach", protect=3),
+        "12. Score-changing FG on top of coaches": M.strategy([], fg, fallback="coach", protect=3),
     }
 
 
