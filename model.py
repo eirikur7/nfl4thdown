@@ -345,17 +345,17 @@ def size(c):
     return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"] + bool(c.get("r12"))
 
 
-def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
+def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equal"):
     """Play all candidates on n games, keep the best quarter, play them on 4x more games, repeat.
     Candidates with identical results (same decisions) are merged, keeping the simplest.
     Returns (list of {candidate index: diff in pp} per round, list of game counts)."""
     alive = sorted(range(len(cands)), key=lambda i: size(cands[i]))
     history, games = [], []
     for r in range(rounds):
-        base = run(m, coach, n=n, seed=seed + r)[0]
+        base = run(m, coach, opp, n=n, seed=seed + r)[0]
         scores, seen = {}, set()
         for i in alive:
-            out, go = run(m, build(cands[i], fg_range), n=n, seed=seed + r)
+            out, go = run(m, build(cands[i], fg_range), opp, n=n, seed=seed + r)
             key = (out.tobytes(), round(go, 9))
             if key in seen:
                 continue
