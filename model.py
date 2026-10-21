@@ -382,7 +382,7 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
     return history, games
 
 
-def refine_deep(m, c, fg_range, opp="equal", n=600_000, seed=950):
+def refine_deep(m, c, fg_range, opp="equal", n=100_000, seed=950):
     """Step 2b: how far to go for it deep in our own half. Tries the yards-to-go rule with every limit
     d = 0 .. X inside our own 30 on the same n paired games, and picks the MOST CAUTIOUS limit that is not
     significantly worse (95% CI of the paired difference includes 0) than the best limit.
