@@ -32,7 +32,7 @@ def summary(r):
     ax.axvline(0, color="black", lw=0.8)
     ax.set_xlabel("Gain over coaches, same opponent (pp, 95% CI, 50,000 paired games)")
     ax.set_title("Best strategies per opponent strength")
-    ax.legend(loc="lower right")
+    ax.legend(loc="center left", bbox_to_anchor=(1.01, 0.5))
     plt.tight_layout()
     plt.show()
 
