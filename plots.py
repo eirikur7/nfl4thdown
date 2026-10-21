@@ -219,6 +219,75 @@ def effects(res):
     plt.show()
 
 
+def short_label(name):
+    """Compact strategy name for plots."""
+    if name.startswith("1."):
+        return "Real coaches"
+    if name.startswith("Best single"):
+        return "Best single rule: go if ≤ " + name.split("X = ")[1].rstrip(")") + " yd"
+    for a, b in [(" | else kick", ""), (" | else coach", ", else coach"), (" yd inside own 30)", " inside own 30)"),
+                 ("(not inside own 30)", "(never inside own 30)"), ("no man's land ", ""), (" (≤6 yd)", " ≤6 yd"),
+                 (" (≤10 yd)", " ≤10 yd"), ("trailing (≤", "trailing late ("), ("protect lead (≤3 drives)", "protect lead"),
+                 (" drives)", ")"), (" + ", " · ")]:
+        name = name.replace(a, b)
+    return name
+
+
+def final_check(res, ax=None):
+    """Final check with the chosen (refined) strategy highlighted."""
+    df = res["final"].sort_values("diff (pp)")
+    chosen = res["best_name"]
+    show = ax is None
+    if ax is None:
+        _, ax = plt.subplots(figsize=(9, 0.42 * len(df) + 1.2))
+    for i, (name, r) in enumerate(df.iterrows()):
+        col = ORANGE if name == chosen else (GRAY if name.startswith("1.") else BLUE)
+        ax.errorbar(r["diff (pp)"], i, xerr=[[r["diff (pp)"] - r["diff lower"]], [r["diff upper"] - r["diff (pp)"]]],
+                    fmt="none", ecolor=GRAY, capsize=3)
+        ax.scatter(r["diff (pp)"], i, color=col, s=70 if name == chosen else 45, zorder=3)
+    ax.set_yticks(range(len(df)), [short_label(n) for n in df.index])
+    for lab, name in zip(ax.get_yticklabels(), df.index):
+        if name == chosen:
+            lab.set_color(ORANGE)
+            lab.set_fontweight("bold")
+    ax.axvline(0, color="black", lw=0.8)
+    ax.set_xlabel("Win probability vs real coaches (pp, 95% CI)")
+    ax.set_title("Final check: top combinations vs real coaches (orange = chosen)")
+    if show:
+        plt.show()
+
+
+def deep_refine(res, ax=None):
+    """Field-position refinement: each limit inside our own 30 vs the best limit, on the same games."""
+    t = res["deep_refine"]
+    X = max(t.index)
+    names = {0: "never", 1: "4th & 1 only"}
+    top = t["vs best limit (pp)"].idxmax()
+    labels = [names.get(d, f"4th & ≤ {d}") + (" (= everywhere)" if d == X else "") + (" — best" if d == top else "")
+              for d in t.index]
+    chosen = res["best"].get("deep")
+    chosen = X if chosen is None else chosen
+    show = ax is None
+    if ax is None:
+        _, ax = plt.subplots(figsize=(9, 3.2))
+    y = np.arange(len(t))[::-1]
+    for yi, (d, r) in zip(y, t.iterrows()):
+        b, lo, hi = r["vs best limit (pp)"], r["vs best lower"], r["vs best upper"]
+        col = ORANGE if d == chosen else (BLUE if hi >= 0 else GRAY)
+        ax.errorbar(b, yi, xerr=[[b - lo], [hi - b]], fmt="none", ecolor=GRAY, capsize=3)
+        ax.scatter(b, yi, color=col, s=70 if d == chosen else 45, zorder=3)
+    ax.set_yticks(y, labels)
+    for lab, d in zip(ax.get_yticklabels(), t.index):
+        if d == chosen:
+            lab.set_color(ORANGE)
+            lab.set_fontweight("bold")
+    ax.axvline(0, color="black", lw=0.8)
+    ax.set_xlabel("Win probability vs the best limit (pp, paired 95% CI)")
+    ax.set_title("Inside our own 30, go for it on …")
+    if show:
+        plt.show()
+
+
 # ---------------------------------------------------------------- Step 3
 
 def opponents(res):
