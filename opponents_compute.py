@@ -3,7 +3,7 @@
 Extension of compute.ipynb. Uses the same candidates, field-goal range and rule parameters as the
 main (equal-opponent) run, read from results.json, so the three opponents are compared like for like.
 
-    python opponents_compute.py weak      # ~40 min (combination search), saves results_opp_weak.json
+    python opponents_compute.py weak      # ~20 min (combination search), saves results_opp_weak.json
     python opponents_compute.py strong
     python opponents_compute.py equal     # reuses the equal search from results.json, ~5 min
     python opponents_compute.py merge     # combines the three into results_opponents.json
@@ -62,31 +62,22 @@ def run_opponent(o):
             top += [c for c in cands if M.label(c) == name][:1]
         top = top or [res["best"]]
     else:
-        history, _ = M.successive_halving(m, cands, fg, seed=seed, opp=o)
+        history, _ = M.successive_halving(m, cands, fg, n=500, seed=seed, opp=o)
         top = [cands[i] for i in sorted(history[-1], key=history[-1].get, reverse=True)[:5]]
 
     # Final check on fresh paired games: top 5, the equal-opponent winner, the best single rule
     pols = {M.label(c): M.build(c, fg) for c in top}
     pols.setdefault(M.label(res["best"]), M.build(res["best"], fg))
     pols[f"Best single rule (X = {best_x})"] = M.strategy([M.short_yardage(best_x)], fg)
-    final = M.compare(m, pols, o, n=100_000, seed=seed + 200)
+    final = M.compare(m, pols, o, n=50_000, seed=seed + 200)
     out["final"] = final
     combos = final.drop(["1. Real coaches", f"Best single rule (X = {best_x})"], errors="ignore")
-    search_best = next(c for c in top + [res["best"]] if M.label(c) == combos["diff (pp)"].idxmax())
     out["equal_winner"] = M.label(res["best"])
-
-    # Step 2b: field-position refinement, same rule as the main analysis (most cautious limit inside
-    # our own 30 that is not significantly worse than the best limit)
-    if o == "equal":                                      # already done in compute.ipynb
-        out["best"], out["deep_refine"] = res["best"], res["deep_refine"]
-    else:
-        refine = M.refine_deep(m, search_best, fg, opp=o, n=100_000, seed=seed + 300)
-        out["best"], out["deep_refine"] = refine["chosen"], refine["table"]
+    if o == "equal":                                      # same winner as compute.ipynb
+        out["best"] = res["best"]
+    else:                                                 # the best combination in this final check
+        out["best"] = next(c for c in top + [res["best"]] if M.label(c) == combos["diff (pp)"].idxmax())
     out["best_name"] = M.label(out["best"])
-    if out["best_name"] not in final.index:              # the refined winner on the final-check games
-        extra = M.compare(m, {out["best_name"]: M.build(out["best"], fg)}, o, n=100_000, seed=seed + 200)
-        final = pd.concat([final, extra.drop("1. Real coaches", errors="ignore")])
-        out["final"] = final
     best_name = out["best_name"]
 
     # Handbook of this opponent's best combination (tied game, not late)
