@@ -336,12 +336,13 @@ def label(c):
 def candidates(top_xy, top_nml, nml_togo=(6, 10)):
     """All combinations searched in step 2. The yards-to-go rule is one of the top strategy-7 cells
     (X, Y), where Y = 100 is plain "go if <= X yards"; no man's land is one of the top (A, B) ranges.
-    Rule 6 (past midfield) is left out: it always lowered the win probability."""
+    Rule 6 (past midfield) is left out: it always lowered the win probability. Every candidate kicks
+    (field goal in range, else punt) when no rule says go; "else do what coaches do" is not searched."""
     yt = [None] + [["7", [int(x), int(y)]] for x, y in top_xy]
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
     return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
             for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
-                                                  [False, True], [None, 3], ["kick", "coach"])]
+                                                  [False, True], [None, 3], ["kick"])]
 
 
 def size(c):
@@ -391,7 +392,7 @@ def rule_effects(cands, scores):
     """Linear regression of each candidate's gain (pp) on 0/1 indicators of its rules, one model per fallback.
     Returns a table with β (average effect of adding the rule) and its standard error, and R² per fallback."""
     rows, r2 = [], {}
-    for fb in ["kick", "coach"]:
+    for fb in dict.fromkeys(cands[i]["fallback"] for i in scores):
         ids = [i for i in scores if cands[i]["fallback"] == fb]
         c = [cands[i] for i in ids]
         X = np.array([[1,

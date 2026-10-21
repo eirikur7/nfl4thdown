@@ -206,10 +206,12 @@ def effects(res):
     names = list(dict.fromkeys(e.rule))
     y = np.arange(len(names))
     plt.figure(figsize=(9, 4.3))
-    for k, (fb, col) in enumerate([("kick", ORANGE), ("coach", BLUE)]):
+    fbs = [fb for fb in ["kick", "coach"] if (e.fallback == fb).any()]
+    w = 0.76 / len(fbs)
+    for k, fb in enumerate(fbs):
         f = e[e.fallback == fb].set_index("rule").loc[names]
-        plt.barh(y + (k - 0.5) * 0.38, f["β"], 0.38, xerr=1.96 * f["se"], color=col, label=f"fallback: {fb}",
-                 error_kw=dict(ecolor=GRAY, capsize=2))
+        plt.barh(y + (k - (len(fbs) - 1) / 2) * w, f["β"], w, xerr=1.96 * f["se"], color=ORANGE if fb == "kick" else BLUE,
+                 label=f"fallback: {fb}", error_kw=dict(ecolor=GRAY, capsize=2))
     plt.yticks(y, names)
     plt.gca().invert_yaxis()
     plt.axvline(0, color="black", lw=0.8)
