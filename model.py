@@ -337,13 +337,14 @@ def label(c):
 def candidates(top_xy, top_nml, nml_togo=(6, 10)):
     """All combinations searched in step 2. The yards-to-go rule is one of the top strategy-7 cells
     (X, Y), where Y = 100 is plain "go if <= X yards"; no man's land is one of the top (A, B) ranges.
-    Rule 6 (past midfield) is left out: it always lowered the win probability. Every candidate kicks
+    Rule 6 (past midfield) is left out: it always lowered the win probability. Rule 11 is left out: its kicking
+    half is rule 12, and its "otherwise go in field-goal range late" half only lowers it. Every candidate kicks
     (field goal in range, else punt) when no rule says go; "else do what coaches do" is not searched."""
     yt = [None] + [["7", [int(x), int(y)]] for x, y in top_xy]
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
     return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
             for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
-                                                  [False, True], [None, 1, 2, 3], ["kick"])]
+                                                  [False], [None, 1, 2, 3], ["kick"])]
 
 
 def size(c):
