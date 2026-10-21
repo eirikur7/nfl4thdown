@@ -123,7 +123,7 @@ def heatmap(ax, table, fmt, vmin, vmax, bold=()):
     for i, j in product(range(v.shape[0]), range(v.shape[1])):
         if np.isnan(v[i, j]):
             continue
-        top = [int(table.index[i]), int(table.columns[j])] in bold
+        top = any(str(table.index[i]) == str(r) and str(table.columns[j]) == str(c) for r, c in bold)
         ax.text(j, i, fmt(v[i, j]), ha="center", va="center", fontsize=8, fontweight="bold" if top else "normal")
         if top:
             ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, ec="black", lw=1.5))
@@ -134,10 +134,10 @@ def heatmap(ax, table, fmt, vmin, vmax, bold=()):
 
 
 def short_and_close(res):
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(13, 4.6))
     im = heatmap(ax, res["heat"], lambda v: f"{v:.3f}", 0.44, 0.56, res["top_xy"])
     ax.set(xlabel="Y: go only if pos ≤ Y (100 = anywhere)", ylabel="X: max yards to go",
-           title="Strategy 7 (boxed: top 3, carried forward)")
+           title="Strategy 7 (boxed: top 10, carried forward)")
     fig.colorbar(im, label="Win probability")
     plt.show()
 
@@ -253,37 +253,6 @@ def final_check(res, ax=None):
     ax.axvline(0, color="black", lw=0.8)
     ax.set_xlabel("Win probability vs real coaches (pp, 95% CI)")
     ax.set_title("Final check: top combinations vs real coaches (orange = chosen)")
-    if show:
-        plt.show()
-
-
-def deep_refine(res, ax=None):
-    """Field-position refinement: each limit inside our own 30 vs the best limit, on the same games."""
-    t = res["deep_refine"]
-    X = max(t.index)
-    names = {0: "never", 1: "4th & 1 only"}
-    top = t["vs best limit (pp)"].idxmax()
-    labels = [names.get(d, f"4th & ≤ {d}") + (" (= everywhere)" if d == X else "") + (" — best" if d == top else "")
-              for d in t.index]
-    chosen = res["best"].get("deep")
-    chosen = X if chosen is None else chosen
-    show = ax is None
-    if ax is None:
-        _, ax = plt.subplots(figsize=(9, 3.2))
-    y = np.arange(len(t))[::-1]
-    for yi, (d, r) in zip(y, t.iterrows()):
-        b, lo, hi = r["vs best limit (pp)"], r["vs best lower"], r["vs best upper"]
-        col = ORANGE if d == chosen else (BLUE if hi >= 0 else GRAY)
-        ax.errorbar(b, yi, xerr=[[b - lo], [hi - b]], fmt="none", ecolor=GRAY, capsize=3)
-        ax.scatter(b, yi, color=col, s=70 if d == chosen else 45, zorder=3)
-    ax.set_yticks(y, labels)
-    for lab, d in zip(ax.get_yticklabels(), t.index):
-        if d == chosen:
-            lab.set_color(ORANGE)
-            lab.set_fontweight("bold")
-    ax.axvline(0, color="black", lw=0.8)
-    ax.set_xlabel("Win probability vs the best limit (pp, paired 95% CI)")
-    ax.set_title("Inside our own 30, go for it on …")
     if show:
         plt.show()
 

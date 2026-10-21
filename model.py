@@ -304,22 +304,11 @@ def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None
 #   yt = None / ["5", X] / ["7", [X, Y]]   (yards-to-go rule),   r6, r9, r11 = True/False,
 #   r8 = None / [A, B, T],   r10 = None / N,   r12 = None / N,   fallback = "kick" / "coach"
 
-DEEP_POS = 70      # "deep in our own half" = inside our own 30 (pos > 70)
-
-
-def deep_limit(rule, d):
-    """Field-position refinement: inside our own 30, go only with <= d yards to go."""
-    return lambda togo, pos, diff, left: rule(togo, pos, diff, left) and (pos <= DEEP_POS or togo <= d)
-
-
 def build(c, fg_range):
-    """Turn a candidate dict into a policy. c["deep"] (optional) limits the yards-to-go rule inside our own 30."""
+    """Turn a candidate dict into a policy."""
     rules = []
-    yt = None
-    if c["yt"] and c["yt"][0] == "5": yt = short_yardage(c["yt"][1])
-    if c["yt"] and c["yt"][0] == "7": yt = short_and_close(*c["yt"][1])
-    if yt is not None:
-        rules.append(deep_limit(yt, c["deep"]) if c.get("deep") is not None else yt)
+    if c["yt"] and c["yt"][0] == "5": rules.append(short_yardage(c["yt"][1]))
+    if c["yt"] and c["yt"][0] == "7": rules.append(short_and_close(*c["yt"][1]))
     if c["r6"]: rules.append(past_midfield())
     if c["r8"]: rules.append(no_mans_land(*c["r8"]))
     if c["r9"]: rules.append(goal_line())
@@ -331,9 +320,10 @@ def label(c):
     """Readable name, e.g. '≤4 yd + trailing (≤2 drives) | else kick'."""
     p = []
     if c["yt"]:
-        p.append(f"≤{c['yt'][1]} yd" if c["yt"][0] == "5" else f"≤{c['yt'][1][0]} yd & pos ≤{c['yt'][1][1]}")
-        if c.get("deep") is not None:
-            p[-1] += f" (≤{c['deep']} yd inside own 30)" if c["deep"] > 0 else " (not inside own 30)"
+        if c["yt"][0] == "5" or c["yt"][1][1] >= 100:
+            p.append(f"≤{c['yt'][1] if c['yt'][0] == '5' else c['yt'][1][0]} yd")
+        else:
+            p.append(f"≤{c['yt'][1][0]} yd & pos ≤{c['yt'][1][1]}")
     if c["r6"]: p.append("past midfield")
     if c["r8"]: p.append(f"no man's land {c['r8'][0]}–{c['r8'][1]} (≤{c['r8'][2]} yd)")
     if c["r9"]: p.append("goal line")
@@ -344,9 +334,10 @@ def label(c):
 
 
 def candidates(top_xy, top_nml, nml_togo=(6, 10)):
-    """All combinations searched in step 2. Rule 6 (past midfield) is left out: it always lowered the win
-    probability (about -3 pp per candidate in the regression), and dropping it halves the search."""
-    yt = [None] + [["5", X] for X in [3, 4, 5, 6, 8]] + [["7", list(xy)] for xy in top_xy]
+    """All combinations searched in step 2. The yards-to-go rule is one of the top strategy-7 cells
+    (X, Y), where Y = 100 is plain "go if <= X yards"; no man's land is one of the top (A, B) ranges.
+    Rule 6 (past midfield) is left out: it always lowered the win probability."""
+    yt = [None] + [["7", [int(x), int(y)]] for x, y in top_xy]
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
     return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
             for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
@@ -358,17 +349,31 @@ def size(c):
     return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"] + bool(c.get("r12"))
 
 
-def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
+_SH = {}
+
+
+def _sh_run(i):
+    """Worker for successive_halving: one candidate on the current round's games."""
+    out, go = run(_SH["m"], build(_SH["cands"][i], _SH["fg"]), _SH["opp"], n=_SH["n"], seed=_SH["seed"])
+    return out, go
+
+
+def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equal", workers=None):
     """Play all candidates on n games, keep the best quarter, play them on 4x more games, repeat.
     Candidates with identical results (same decisions) are merged, keeping the simplest.
+    Runs the candidates in parallel (same results as one process: every candidate uses the same seed).
     Returns (list of {candidate index: diff in pp} per round, list of game counts)."""
+    import multiprocessing as mp
+    workers = workers or mp.cpu_count()
     alive = sorted(range(len(cands)), key=lambda i: size(cands[i]))
     history, games = [], []
     for r in range(rounds):
-        base = run(m, coach, n=n, seed=seed + r)[0]
+        base = run(m, coach, opp, n=n, seed=seed + r)[0]
+        _SH.update(m=m, cands=cands, fg=fg_range, opp=opp, n=n, seed=seed + r)
+        with mp.get_context("fork").Pool(workers) as pool:
+            results = pool.map(_sh_run, alive, chunksize=max(1, len(alive) // (8 * workers)))
         scores, seen = {}, set()
-        for i in alive:
-            out, go = run(m, build(cands[i], fg_range), n=n, seed=seed + r)
+        for i, (out, go) in zip(alive, results):
             key = (out.tobytes(), round(go, 9))
             if key in seen:
                 continue
@@ -380,36 +385,6 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700):
         alive = sorted(scores, key=scores.get, reverse=True)[:max(5, len(scores) // 4)]
         n *= 4
     return history, games
-
-
-def refine_deep(m, c, fg_range, opp="equal", n=100_000, seed=950):
-    """Step 2b: how far to go for it deep in our own half. Tries the yards-to-go rule with every limit
-    d = 0 .. X inside our own 30 on the same n paired games, and picks the MOST CAUTIOUS limit that is not
-    significantly worse (95% CI of the paired difference includes 0) than the best limit.
-    Returns {"table": DataFrame, "chosen": candidate dict}."""
-    if not c["yt"]:
-        return {"table": None, "chosen": c}
-    X = c["yt"][1] if c["yt"][0] == "5" else c["yt"][1][0]
-    if c["yt"][0] == "7" and c["yt"][1][1] <= DEEP_POS:          # already never goes deep
-        return {"table": None, "chosen": c}
-    base = run(m, coach, opp, n, seed)[0]
-    variants = {d: dict(c, deep=d if d < X else None) for d in range(0, X + 1)}
-    outs = {d: run(m, build(v, fg_range), opp, n, seed)[0] for d, v in variants.items()}
-    top = max(outs, key=lambda d: outs[d].mean())
-    rows = []
-    for d, out in outs.items():
-        g, glo, ghi = ci(100 * (out - base))
-        b, blo, bhi = ci(100 * (out - outs[top]))
-        rows.append({"go inside own 30 if yards to go ≤": d, "p̂": out.mean(), "vs coaches (pp)": g,
-                     "lower": glo, "upper": ghi, "vs best limit (pp)": b, "vs best lower": blo, "vs best upper": bhi})
-    table = pd.DataFrame(rows).set_index("go inside own 30 if yards to go ≤")
-    chosen_d = min(d for d in outs if table.loc[d, "vs best upper"] >= 0)
-    return {"table": table, "chosen": variants[chosen_d]}
-
-
-RULE_NAMES = {"5": "5. Short yardage", "7": "7. Short and close", "6": "6. Past midfield",
-              "8": "8. No man's land", "9": "9. Goal line", "10": "10. Trailing late", "11": "11. Score-aware FG (late)",
-              "12": "12. Protect a lead (late)"}
 
 
 def rule_effects(cands, scores):
