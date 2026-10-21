@@ -423,7 +423,8 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equ
     """Play all candidates on n games, keep the best quarter, play them on 4x more games, repeat.
     Candidates with identical results (same decisions) are merged, keeping the simplest.
     Runs the candidates in parallel (same results as one process: every candidate uses the same seed).
-    Returns (list of {candidate index: diff in pp} per round, list of game counts)."""
+    Returns (list of {candidate index: diff in pp} per round, list of game counts,
+    {candidate index: p̂, diff and 95% CI vs coaches} for the last round)."""
     import multiprocessing as mp
     workers = workers or mp.cpu_count()
     alive = sorted(range(len(cands)), key=lambda i: size(cands[i]))
@@ -433,19 +434,21 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equ
         _SH.update(m=m, cands=cands, fg=fg_range, opp=opp, n=n, seed=seed + r)
         with mp.get_context("fork").Pool(workers) as pool:
             results = pool.map(_sh_run, alive, chunksize=max(1, len(alive) // (8 * workers)))
-        scores, seen = {}, set()
+        scores, seen, last = {}, set(), {}
         for i, (out, go) in zip(alive, results):
             key = (out.tobytes(), round(go, 9))
             if key in seen:
                 continue
             seen.add(key)
-            scores[i] = 100 * (out - base).mean()
+            d, lo, hi = ci(100 * (out - base))
+            scores[i] = d
+            last[i] = {"p̂": out.mean(), "diff (pp)": d, "diff lower": lo, "diff upper": hi, "go %": 100 * go}
         history.append(scores)
         games.append(n_games(n))
         print(f"Round {r + 1}: {len(scores)} distinct candidates on {n_games(n):,} games each")
         alive = sorted(scores, key=scores.get, reverse=True)[:max(5, len(scores) // 4)]
         n *= 4
-    return history, games
+    return history, games, last
 
 
 RULE_NAMES = {"5": "5. Short yardage", "7": "7. Short and close", "6": "6. Past midfield",
