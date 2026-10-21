@@ -134,10 +134,10 @@ def heatmap(ax, table, fmt, vmin, vmax, bold=()):
 
 
 def short_and_close(res):
-    fig, ax = plt.subplots(figsize=(13, 4.6))
-    im = heatmap(ax, res["heat"], lambda v: f"{v:.3f}", 0.44, 0.56, res["top_xy"])
+    fig, ax = plt.subplots(figsize=(11, 5.2))
+    im = heatmap(ax, res["heat"], lambda v: f"{v:.3f}", 0.44, 0.56, res.get("heat_tied", res["top_xy"]))
     ax.set(xlabel="Y: go only if pos ≤ Y (100 = anywhere)", ylabel="X: max yards to go",
-           title="Strategy 7 (boxed: top 10, carried forward)")
+           title="Strategy 7 (boxed: not significantly worse than the best cell)")
     fig.colorbar(im, label="Win probability")
     plt.show()
 

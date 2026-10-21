@@ -308,12 +308,19 @@ def score_changing_fg(N, pos, fg_range, diff, left):
     return N is not None and left <= N and pos <= fg_range and fg_changes_scores(diff)
 
 
-def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None):
+def leading_late(lead, pos, diff, left):
+    """Rule 13: leading with N or fewer drives left and on our own side of the field (pos >= Z), lead = (N, Z)."""
+    return lead is not None and diff > 0 and left <= lead[0] and pos >= lead[1]
+
+
+def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None, lead=None):
     """Go if ANY go rule says so. fg11 = rule 11 (score-aware field goal, late only).
     protect = N: rule 12, with <= N drives left always kick the field goal when it changes the number of scores
     between the teams (lead 6-8 -> 9+, or trail 9-11 -> within 8), overriding every go rule.
+    lead = (N, Z): rule 13, when leading with <= N drives left at pos >= Z never go for it (kick instead),
+    overriding every go rule and the coach fallback: a failed attempt there hands the opponent a short field.
     fallback when no rule says go: 'kick' (FG if in range, else punt) or 'coach' (decide like a real coach)."""
-    def policy(m, togo, pos, diff, left, rng):
+    def decide(m, togo, pos, diff, left, rng):
         if score_changing_fg(protect, pos, fg_range, diff, left):
             return "fg"
         if any(rule(togo, pos, diff, left) for rule in go_rules):
@@ -321,7 +328,34 @@ def strategy(go_rules=(), fg_range=37, fg11=False, fallback="kick", protect=None
         if fg11 and pos <= fg_range and left <= LATE:
             return "fg" if fg_changes_scores(diff) else "go"
         return coach(m, togo, pos, diff, left, rng) if fallback == "coach" else kick(pos, fg_range)
+
+    def policy(m, togo, pos, diff, left, rng):
+        a = decide(m, togo, pos, diff, left, rng)
+        return kick(pos, fg_range) if a == "go" and leading_late(lead, pos, diff, left) else a
     return policy
+
+
+_GRID = {}
+
+
+def _grid_run(c):
+    return run(_GRID["m"], strategy([short_and_close(*c)], _GRID["fg"]), n=_GRID["n"], seed=_GRID["seed"])[0].astype(np.float32)
+
+
+def strategy7_grid(m, fg_range, X_VALS, Y_VALS, n=100_000, seed=12, workers=None):
+    """Strategy 7 (go if <= X yards and pos <= Y) on every (X, Y), all on the same n paired games, in parallel.
+    Returns (heat: win probability per cell, tied: cells not significantly worse than the best cell)."""
+    import multiprocessing as mp
+    cells = [(X, Y) for X in X_VALS for Y in Y_VALS]
+    _GRID.update(m=m, fg=fg_range, n=n, seed=seed)
+    with mp.get_context("fork").Pool(workers or mp.cpu_count()) as pool:
+        outs = dict(zip(cells, pool.map(_grid_run, cells)))
+    heat = pd.DataFrame(index=X_VALS, columns=Y_VALS, dtype=float)
+    for (X, Y), o in outs.items():
+        heat.loc[X, Y] = o.mean()
+    best = max(outs, key=lambda c: outs[c].mean())
+    tied = [[int(X), int(Y)] for (X, Y), o in outs.items() if ci(100 * (o.astype(float) - outs[best]))[2] >= 0]
+    return heat, tied
 
 
 # A candidate combination is a dict:
