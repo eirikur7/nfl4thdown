@@ -78,3 +78,28 @@ When no rule says go, every candidate kicks: a field goal up to 57 yards, otherw
 **Search size:**
 - Currently 7,392 candidates, about 35 min for the main run.
 - With rule 13 it is about 3× larger, about 1 h, plus about 1 h for the weak/strong searches.
+
+## 4. Strategy 7 can't express a field-position-dependent threshold
+
+Per-decision check (`pending/go_vs_punt_grid.py` → `go_vs_punt_grid.csv`, 10,000 simulations per cell). Each cell is go − punt in net points (rest of our drive + the opponent's next drive):
+
+| 4th & | own 10 | own 20 | own 30 | own 40 | own 50 |
+|---|---|---|---|---|---|
+| 1 | +0.86 | +0.85 | +0.89 | +1.23 | +1.64 |
+| 2 | +0.37 | +0.31 | +0.44 | +0.68 | +1.14 |
+| 3 | +0.05 | +0.11 | +0.18 | +0.48 | +0.95 |
+| 4 | −0.11 | −0.02 | +0.10 | +0.39 | +0.78 |
+| 5 | −0.52 | −0.41 | −0.25 | +0.08 | +0.51 |
+| 6 | −0.21 | −0.37 | −0.17 | +0.08 | +0.55 |
+| 8 | −0.64 | −0.71 | −0.48 | −0.28 | +0.16 |
+
+- **4th & 6 converts 43%.**
+- **A failure is expensive.** After a failed attempt at our own 20 the opponent scores a TD 62% of the time, against 28% after a punt.
+- **So deep 4th & 5–6 is "punt"** and 4th & 1–2 is "go" everywhere.
+
+**Why the heatmap still picks one X:** strategy 7 uses one X for the whole field, plus a single cut-off Y. Lowering Y to avoid deep 4th & 5–6 also throws away deep 4th & 1–2, so a larger Y always looks better. X = 6 wins because it is right from our own 40 onward, where most 4th downs happen.
+
+**Proposed fix:** go if ≤ X, but inside own Z only if ≤ d.
+- X = 3–8, d = 0–4, Z = own 10/20/30/40.
+- The top 10 go into the search.
+- An alternative is a "points handbook": go wherever this table is positive.
