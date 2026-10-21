@@ -343,7 +343,7 @@ def candidates(top_xy, top_nml, nml_togo=(6, 10)):
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
     return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
             for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
-                                                  [False, True], [None, 3], ["kick"])]
+                                                  [False, True], [None, 1, 2, 3], ["kick"])]
 
 
 def size(c):
