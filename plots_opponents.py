@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
 
+import model as M
 from plots import BLUE, ORANGE, DARK, LIGHT, CALLS, CALL_COLORS
 
 OPPS = ["weak", "equal", "strong"]
@@ -36,12 +37,25 @@ def summary(r):
     plt.show()
 
 
-def handbooks(r, max_togo=10):
-    """The best combination's handbook against each opponent strength, side by side."""
+def _handbook(m, cand, fg):
+    """Handbook of a candidate; where it falls back to the coaches, show their MOST COMMON call
+    (as in the "Real coaches" panel of results.ipynb) instead of a random draw."""
+    most_common = lambda m_, togo, pos, diff, left, rng: (
+        "go" if m_["p_go"][(M.togo_bin(togo), M.pos_bin(pos))] > 0.5 else ("fg" if m_["p_fg_try"][pos] > 0.5 else "punt"))
+    orig, M.coach = M.coach, most_common
+    try:
+        return M.handbook(m, M.build(cand, fg))
+    finally:
+        M.coach = orig
+
+
+def handbooks(r, m=None, fg=None, max_togo=10):
+    """The best combination's handbook against each opponent strength, side by side.
+    With m and fg, rebuilt so a coach fallback shows the coaches' most common call."""
     cmap = ListedColormap(CALL_COLORS)
     fig, axs = plt.subplots(1, 3, figsize=(15, 4.0), sharey=True)
     for ax, o in zip(axs, OPPS):
-        hb = r[f"{o}/handbook"]
+        hb = _handbook(m, r[f"{o}/best"], fg) if m is not None else r[f"{o}/handbook"]
         hb = hb[hb.togo <= max_togo]
         grid = hb.pivot(index="togo", columns="pos", values="call").reindex(columns=range(1, 100))
         codes = grid.apply(lambda s: s.map({c: i for i, c in enumerate(CALLS)})).values.astype(float)
