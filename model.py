@@ -156,7 +156,7 @@ def punt(m, pos, rng):
     punts = m["punts_at"][pos]
     kd, ret = punts[int(rng.random() * len(punts))]
     land = pos - kd
-    return 80 if land <= 0 else min(99, max(1, 100 - land + ret))
+    return 80 if land <= 0 else min(99, max(1, 100 - land - ret))   # a return moves the receiver forward
 
 
 def drive(m, pos, policy, yards, diff, left, rng, log=None):
