@@ -30,7 +30,7 @@ def summary(r):
     ax.set_yticklabels([lab for lab, _ in rows])
     ax.invert_yaxis()
     ax.axvline(0, color="black", lw=0.8)
-    ax.set_xlabel("Gain over coaches, same opponent (pp, 95% CI, 100,000 paired games)")
+    ax.set_xlabel("Gain over coaches, same opponent (pp, 95% CI, 50,000 paired games)")
     ax.set_title("Best strategies per opponent strength")
     ax.legend(loc="lower right")
     plt.tight_layout()
