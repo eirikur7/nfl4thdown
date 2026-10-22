@@ -287,6 +287,27 @@ CALLS = ["go", "fg", "punt"]
 CALL_COLORS = [BLUE, ORANGE, "#d9d8d4"]
 
 
+def handbook_pair(hbs, coaches, max_togo=10):
+    """Handbooks side by side, e.g. against a weak and a strong opponent (coaches' win rate in the titles)."""
+    cmap = ListedColormap(CALL_COLORS)
+    fig, axs = plt.subplots(1, len(hbs), figsize=(13, 4.0), sharey=True)
+    for ax, (o, hb) in zip(axs, hbs.items()):
+        hb = hb[hb.togo <= max_togo]
+        grid = hb.pivot(index="togo", columns="pos", values="call").reindex(columns=range(1, 100))
+        codes = grid.apply(lambda s: s.map({c: i for i, c in enumerate(CALLS)})).values.astype(float)
+        ax.imshow(codes, cmap=cmap, vmin=-0.5, vmax=2.5, aspect="auto", origin="lower", extent=(0, 99, 0, max_togo))
+        ax.invert_xaxis()
+        ax.set(xlabel="pos (yards to opponent's end zone)", title=f"{o.capitalize()} opponent (coaches win {100 * coaches[o]:.0f}%)")
+        ax.set_yticks(range(1, max_togo + 1))
+        ax.set_xticks(range(0, 100, 10))
+        ax.grid(False)
+    axs[0].set_ylabel("Yards to go")
+    fig.legend(handles=[Patch(color=c, label=l) for c, l in zip(CALL_COLORS, ["Go for it", "Field goal", "Punt"])],
+               loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.07))
+    plt.tight_layout()
+    plt.show()
+
+
 def handbook_map(hb, max_togo=10):
     """Two maps side by side: the handbook's call vs what coaches usually do."""
     hb = hb[hb.togo <= max_togo]
