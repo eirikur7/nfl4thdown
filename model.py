@@ -339,15 +339,15 @@ _GRID = {}
 
 
 def _grid_run(c):
-    return run(_GRID["m"], strategy([short_and_close(*c)], _GRID["fg"]), n=_GRID["n"], seed=_GRID["seed"])[0].astype(np.float32)
+    return run(_GRID["m"], strategy([short_and_close(*c)], _GRID["fg"]), _GRID["opp"], n=_GRID["n"], seed=_GRID["seed"])[0].astype(np.float32)
 
 
-def strategy7_grid(m, fg_range, X_VALS, Y_VALS, n=100_000, seed=12, workers=None):
+def strategy7_grid(m, fg_range, X_VALS, Y_VALS, n=100_000, seed=12, workers=None, opp="equal"):
     """Strategy 7 (go if <= X yards and pos <= Y) on every (X, Y), all on the same n paired games, in parallel.
     Returns (heat: win probability per cell, tied: cells not significantly worse than the best cell)."""
     import multiprocessing as mp
     cells = [(X, Y) for X in X_VALS for Y in Y_VALS]
-    _GRID.update(m=m, fg=fg_range, n=n, seed=seed)
+    _GRID.update(m=m, fg=fg_range, n=n, seed=seed, opp=opp)
     with mp.get_context("fork").Pool(workers or mp.cpu_count()) as pool:
         outs = dict(zip(cells, pool.map(_grid_run, cells)))
     heat = pd.DataFrame(index=X_VALS, columns=Y_VALS, dtype=float)
