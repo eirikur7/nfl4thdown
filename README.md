@@ -74,7 +74,7 @@ rerun gives the same numbers. Setting `M.SPEED = 0.2` at the top of `compute.ipy
 ## Assumptions and choices
 
 - **No clock or penalties;** the number of drives left stands in for the clock. No 2-point tries or overtime.
-- **4th downs use 3rd-down plays,** because real 4th-down attempts are rare and biased.
+- **3rd and 4th downs are pooled** (about 34,900 3rd-down and 2,600 4th-down plays), because real 4th-down attempts are rare and biased: teams mostly go for it when it is short and looks good.
 - **The opponent doesn't adapt to our strategy.** Opponent strength only changes its offense.
 - **The simulated coaches use their quarter 1–3 behaviour all game,** so they don't react to the score late. As a check, we re-ran the main analysis with score-aware coaches, using their real 4th-quarter decisions per score state. The gain fell from 4.0 to 3.6 pp, and the handbook barely changed.
 - **Punts:** the kick distance and return yards of the sampled real punt are both added to the punt. Punt-return touchdowns and muffed punts are included.
