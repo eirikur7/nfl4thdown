@@ -27,26 +27,31 @@ def parallel(jobs):
         return pool.map(_run, jobs)
 
 
+import os
+SKIP_CURVES = os.environ.get("SKIP_CURVES") == "1"     # curves already in results.json (resume after a restart)
 # ---- 1. opponent curves (as compute.ipynb step 3)
-X_OPP, N_OPP = [0, 1, 2, 3, 4, 6, 8, 10, 15], 40_000
-rows = [str(x) for x in X_OPP] + ["always"]
-G.update({"coach": M.coach, "always": M.always}, **{str(X): M.strategy([M.short_yardage(X)], FG) for X in X_OPP})
-aggr, aggr_lo, aggr_hi = (pd.DataFrame(index=rows, columns=OPPS, dtype=float) for _ in range(3))
-aggr_base = {}
-for k, o in enumerate(OPPS):
-    outs = parallel([(key, o, N_OPP, 1000 + k) for key in ["coach"] + rows])
-    base, outs = outs[0].astype(float), outs[1:]
-    aggr_base[o] = base.mean()
-    for key, out in zip(rows, outs):
-        aggr.loc[key, o], aggr_lo.loc[key, o], aggr_hi.loc[key, o] = M.ci(100 * (out - base))
-best_x_opp = {o: aggr[o].drop("always").idxmax() for o in OPPS}
-G["single"] = M.strategy([M.short_yardage(res["best_x"])], FG)
-G["best"] = M.build(res["best"], FG)
-opp_res = pd.DataFrame({o: M.compare(m, {f"best single (≤{res['best_x']} yd)": G["single"], "best combination": G["best"]},
-                                     o, n=30_000, seed=1100 + k)["diff (pp)"] for k, o in enumerate(OPPS)})
-res.update(aggr=aggr, aggr_lo=aggr_lo, aggr_hi=aggr_hi, aggr_base=aggr_base, best_x_opp=best_x_opp, opp_res=opp_res)
-M.save_results(res, "results.json")
-print("Opponent curves:", {o: round(aggr_base[o], 3) for o in OPPS}, best_x_opp, flush=True)
+if not SKIP_CURVES:
+    X_OPP, N_OPP = [0, 1, 2, 3, 4, 6, 8, 10, 15], 40_000
+    rows = [str(x) for x in X_OPP] + ["always"]
+    G.update({"coach": M.coach, "always": M.always}, **{str(X): M.strategy([M.short_yardage(X)], FG) for X in X_OPP})
+    aggr, aggr_lo, aggr_hi = (pd.DataFrame(index=rows, columns=OPPS, dtype=float) for _ in range(3))
+    aggr_base = {}
+    for k, o in enumerate(OPPS):
+        outs = parallel([(key, o, N_OPP, 1000 + k) for key in ["coach"] + rows])
+        base, outs = outs[0].astype(float), outs[1:]
+        aggr_base[o] = base.mean()
+        for key, out in zip(rows, outs):
+            aggr.loc[key, o], aggr_lo.loc[key, o], aggr_hi.loc[key, o] = M.ci(100 * (out - base))
+    best_x_opp = {o: aggr[o].drop("always").idxmax() for o in OPPS}
+    G["single"] = M.strategy([M.short_yardage(res["best_x"])], FG)
+    G["best"] = M.build(res["best"], FG)
+    opp_res = pd.DataFrame({o: M.compare(m, {f"best single (≤{res['best_x']} yd)": G["single"], "best combination": G["best"]},
+                                         o, n=30_000, seed=1100 + k)["diff (pp)"] for k, o in enumerate(OPPS)})
+    res.update(aggr=aggr, aggr_lo=aggr_lo, aggr_hi=aggr_hi, aggr_base=aggr_base, best_x_opp=best_x_opp, opp_res=opp_res)
+    M.save_results(res, "results.json")
+    print("Opponent curves:", {o: round(aggr_base[o], 3) for o in OPPS}, best_x_opp, flush=True)
+else:
+    aggr_base = res["aggr_base"]
 
 # ---- 2. weak and strong: heatmaps, top 5, successive halving, final check
 out = {"equal": {"best": res["best"], "best_name": res["best_name"], "final": res["final"],
@@ -54,6 +59,11 @@ out = {"equal": {"best": res["best"], "best_name": res["best_name"], "final": re
 A_VALS, B_VALS = [25, 30, 35, 40, 45, 50], [35, 40, 45, 50, 55, 60, 65]
 for k, o in enumerate(["weak", "strong"]):
     seed0 = 1700 + 1000 * k
+    done = f"results_opp_{o}.json"
+    if os.path.exists(done):                              # finished before a restart
+        out[o] = M.load_results(done)
+        print(o, "loaded from", done, flush=True)
+        continue
     heat, tied = M.strategy7_grid(m, FG, list(range(1, 9)), list(range(10, 101, 10)), n=100_000, seed=12, opp=o)
     top_xy = [[int(x), int(y)] for x, y in heat.stack().sort_values(ascending=False).index[:5]]
     best_x = int(heat[100].idxmax())
@@ -85,6 +95,7 @@ for k, o in enumerate(["weak", "strong"]):
     out[o] = {"best": best, "best_name": best_name, "final": final, "top_xy": top_xy, "top_nml": top_nml,
               "heat": heat, "heat_tied": tied, "nml": nml, "nml_base": nml_base, "best_x": best_x,
               "coaches": aggr_base[o], "handbook": M.handbook(m, M.build(best, FG))}
+    M.save_results(out[o], done)
     print(final[["p̂", "diff (pp)", "diff lower", "diff upper"]].round(3).to_string(), flush=True)
     print(o, "best:", best_name, flush=True)
 
