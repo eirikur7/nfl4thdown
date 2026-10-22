@@ -135,7 +135,7 @@ def heatmap(ax, table, fmt, vmin, vmax, bold=()):
 
 def short_and_close(res):
     fig, ax = plt.subplots(figsize=(11, 5.2))
-    im = heatmap(ax, res["heat"], lambda v: f"{v:.3f}", 0.44, 0.56, res.get("heat_tied", res["top_xy"]))
+    im = heatmap(ax, res["heat"], lambda v: f"{v:.4f}", 0.44, 0.56, res.get("heat_tied", res["top_xy"]))
     ax.set(xlabel="Y: go only if pos ≤ Y (100 = anywhere)", ylabel="X: max yards to go",
            title="Strategy 7 (boxed: not significantly worse than the best cell)")
     fig.colorbar(im, label="Win probability")
@@ -166,7 +166,7 @@ def no_mans_land(m, res):
     lines = [ln for ln in axs[0].get_lines() + ax2.get_lines() if not ln.get_label().startswith("_")]
     axs[0].legend(handles=lines, loc="lower left", fontsize=9)
     axs[0].set_title("Field goals get unlikely, punts gain little")
-    im = heatmap(axs[1], 100 * (res["nml"] - res["nml_base"]), lambda v: f"{v:+.1f}", -2, 2, res["top_nml"])
+    im = heatmap(axs[1], 100 * (res["nml"] - res["nml_base"]), lambda v: f"{v:+.2f}", -2, 2, res["top_nml"])
     axs[1].set(xlabel="B (upper end of pos range)", ylabel="A (lower end)",
                title=f"Adding 'go if A ≤ pos ≤ B and ≤ 10 yards' to 'go if ≤ {res['best_x']} yards'")
     fig.colorbar(im, ax=axs[1], label="pp vs short yardage alone")
