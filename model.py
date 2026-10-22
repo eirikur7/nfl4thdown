@@ -172,7 +172,7 @@ def punt(m, pos, rng):
         return MUFF_TD
     if kind == 2:
         return MUFF + min(99, max(1, land + ret))
-    return 80 if land <= 0 else min(99, max(1, 100 - land - ret))   # a return moves the receiver forward
+    return 80 if land <= 0 else min(99, max(1, 100 - land + ret))   # return yards added to the punt (team choice)
 
 
 def drive(m, pos, policy, yards, diff, left, rng, log=None):
@@ -360,7 +360,7 @@ def strategy7_grid(m, fg_range, X_VALS, Y_VALS, n=100_000, seed=12, workers=None
 
 # A candidate combination is a dict:
 #   yt = None / ["5", X] / ["7", [X, Y]]   (yards-to-go rule),   r6, r9, r11 = True/False,
-#   r8 = None / [A, B, T],   r10 = None / N,   r12 = None / N,   fallback = "kick" / "coach"
+#   r8 = None / [A, B, T],   r10 = None / N,   r12 = None / N,   r13 = None / [N, Z],   fallback = "kick" / "coach"
 
 def build(c, fg_range):
     """Turn a candidate dict into a policy."""
@@ -371,7 +371,7 @@ def build(c, fg_range):
     if c["r8"]: rules.append(no_mans_land(*c["r8"]))
     if c["r9"]: rules.append(goal_line())
     if c["r10"]: rules.append(trailing_late(c["r10"]))
-    return strategy(rules, fg_range, fg11=c["r11"], fallback=c["fallback"], protect=c.get("r12"))
+    return strategy(rules, fg_range, fg11=c["r11"], fallback=c["fallback"], protect=c.get("r12"), lead=c.get("r13"))
 
 
 def label(c):
@@ -388,6 +388,7 @@ def label(c):
     if c["r10"]: p.append(f"trailing (≤{c['r10']} drives)")
     if c["r11"]: p.append("score-aware FG")
     if c.get("r12"): p.append(f"score-changing FG (≤{c['r12']} drives)")
+    if c.get("r13"): p.append(f"leading late: no go at pos ≥{c['r13'][1]} (≤{c['r13'][0]} drives)")
     return (" + ".join(p) or "no rules") + f" | else {c['fallback']}"
 
 
@@ -399,14 +400,14 @@ def candidates(top_xy, top_nml, nml_togo=(6, 10)):
     (field goal in range, else punt) when no rule says go; "else do what coaches do" is not searched."""
     yt = [None] + [["7", [int(x), int(y)]] for x, y in top_xy]
     r8 = [None] + [[a, b, t] for a, b in top_nml for t in nml_togo]
-    return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, fallback=g)
-            for a, b, c, d, e, f, h, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
-                                                  [False], [None, 1, 2, 3], ["kick"])]
+    return [dict(yt=a, r6=b, r8=c, r9=d, r10=e, r11=f, r12=h, r13=k, fallback=g)
+            for a, b, c, d, e, f, h, k, g in product(yt, [False], r8, [False, True], [None, 2, 3, 6],
+                                                     [False], [None, 1, 2, 3], [None, [2, 50]], ["kick"])]
 
 
 def size(c):
     """Number of rules in a candidate."""
-    return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"] + bool(c.get("r12"))
+    return bool(c["yt"]) + c["r6"] + bool(c["r8"]) + c["r9"] + bool(c["r10"]) + c["r11"] + bool(c.get("r12")) + bool(c.get("r13"))
 
 
 _SH = {}
@@ -422,7 +423,8 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equ
     """Play all candidates on n games, keep the best quarter, play them on 4x more games, repeat.
     Candidates with identical results (same decisions) are merged, keeping the simplest.
     Runs the candidates in parallel (same results as one process: every candidate uses the same seed).
-    Returns (list of {candidate index: diff in pp} per round, list of game counts)."""
+    Returns (list of {candidate index: diff in pp} per round, list of game counts,
+    {candidate index: p̂, diff and 95% CI vs coaches} for the last round)."""
     import multiprocessing as mp
     workers = workers or mp.cpu_count()
     alive = sorted(range(len(cands)), key=lambda i: size(cands[i]))
@@ -432,24 +434,26 @@ def successive_halving(m, cands, fg_range, rounds=4, n=1_000, seed=700, opp="equ
         _SH.update(m=m, cands=cands, fg=fg_range, opp=opp, n=n, seed=seed + r)
         with mp.get_context("fork").Pool(workers) as pool:
             results = pool.map(_sh_run, alive, chunksize=max(1, len(alive) // (8 * workers)))
-        scores, seen = {}, set()
+        scores, seen, last = {}, set(), {}
         for i, (out, go) in zip(alive, results):
             key = (out.tobytes(), round(go, 9))
             if key in seen:
                 continue
             seen.add(key)
-            scores[i] = 100 * (out - base).mean()
+            d, lo, hi = ci(100 * (out - base))
+            scores[i] = d
+            last[i] = {"p̂": out.mean(), "diff (pp)": d, "diff lower": lo, "diff upper": hi, "go %": 100 * go}
         history.append(scores)
         games.append(n_games(n))
         print(f"Round {r + 1}: {len(scores)} distinct candidates on {n_games(n):,} games each")
         alive = sorted(scores, key=scores.get, reverse=True)[:max(5, len(scores) // 4)]
         n *= 4
-    return history, games
+    return history, games, last
 
 
 RULE_NAMES = {"5": "5. Short yardage", "7": "7. Short and close", "6": "6. Past midfield",
               "8": "8. No man's land", "9": "9. Goal line", "10": "10. Trailing late", "11": "11. Score-aware FG (late)",
-              "12": "12. Score-changing FG (late)"}
+              "12": "12. Score-changing FG (late)", "13": "13. Leading late: no go in own half"}
 
 
 def rule_effects(cands, scores):
@@ -461,10 +465,10 @@ def rule_effects(cands, scores):
         c = [cands[i] for i in ids]
         X = np.array([[1,
                        bool(k["yt"]) and k["yt"][0] == "5", bool(k["yt"]) and k["yt"][0] == "7",
-                       k["r6"], bool(k["r8"]), k["r9"], bool(k["r10"]), k["r11"], bool(k.get("r12"))]
+                       k["r6"], bool(k["r8"]), k["r9"], bool(k["r10"]), k["r11"], bool(k.get("r12")), bool(k.get("r13"))]
                       for k in c], dtype=float)
         y = np.array([scores[i] for i in ids])
-        keys = np.array(["", "5", "7", "6", "8", "9", "10", "11", "12"])
+        keys = np.array(["", "5", "7", "6", "8", "9", "10", "11", "12", "13"])
         used = [0] + [j for j in range(1, X.shape[1]) if X[:, j].min() != X[:, j].max()]   # drop rules never varied
         X, keys = X[:, used], keys[used]
         beta, *_ = np.linalg.lstsq(X, y, rcond=None)
